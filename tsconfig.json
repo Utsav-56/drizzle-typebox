@@ -1,0 +1,18 @@
+{
+
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"outDir": "dist",
+		"declaration": true,
+		"noEmit": true,
+		"paths": {
+			"~/*": [
+				"./src/*"
+			]
+		}
+	},
+	"include": [
+		"src",
+		"*.ts"
+	]
+}
