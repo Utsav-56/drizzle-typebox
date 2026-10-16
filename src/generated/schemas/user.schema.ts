@@ -1,6 +1,7 @@
 // AUTO-GENERATED FILE BY DRIZZLE-TYPEBOX GENERATOR — DO NOT EDIT MANUALLY
 import { type Static } from "@sinclair/typebox";
 import { t } from "@utsav/typebox";
+import { user } from "../../db/user";
 
 const _selectComposite1 = t.Object({
   isBanned: t.Boolean(),
@@ -14,6 +15,7 @@ export const selectUserSchema = t.Composite([
     name: t.String(),
     email: t.String(),
     age: t.Numeric(),
+    role: t.OneOf(["user", "admin", "moderator"]),
     createdAt: t.DateTime(),
     updatedAt: t.DateTime(),
   }),
@@ -27,10 +29,11 @@ const _insertComposite1 = t.Object({
 });
 export const insertUserSchema = t.Composite([
   t.Object({
-    avatar: t.String(),
+    avatar: t.ImageFile(),
     name: t.String(),
     email: t.String(),
     age: t.Numeric({ min: 32 }),
+    role: t.OneOf(["user", "admin", "moderator"]),
     updatedAt: t.Optional(t.DateTime()),
   }),
   _insertComposite1,
@@ -39,10 +42,11 @@ export const user_insert_schema = insertUserSchema;
 export type InsertUser = Static<typeof insertUserSchema>;
 
 export const updateUserSchema = t.Object({
-  avatar: t.Optional(t.String()),
+  avatar: t.Optional(t.ImageFile()),
   name: t.Optional(t.String()),
   email: t.Optional(t.String()),
   age: t.Optional(t.Numeric({ min: 32 })),
+  role: t.Optional(t.OneOf(["user", "admin", "moderator"])),
   updatedAt: t.Optional(t.DateTime()),
 });
 export const user_update_schema = updateUserSchema;

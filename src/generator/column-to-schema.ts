@@ -31,7 +31,7 @@ const FIXED_CHAR_COL_TYPES = new Set(["PgChar", "PgBpChar"]);
 const resolveStringColumn = (col: Column, mode: QueryMode): string => {
   // `col.enumValues` is natively typed on Drizzle's `Column`
   if (Array.isArray(col.enumValues) && col.enumValues.length > 0) {
-    return $t.OneOf(col.enumValues);
+    return $t.OneOf(col.enumValues as [string, ...string[]]);
   }
 
   if (col.columnType === "PgUUID") return $t.Uuid();
@@ -113,7 +113,7 @@ export const resolveBaseSchema = (
     return rawRefinements[colName];
   }
 
-  const matchedRule = NAME_RULES.find((r) => r.pattern.test(colName));
+  const matchedRule = NAME_RULES.find((r) => r.pattern.test(col.name));
   if (matchedRule) {
     if (mode === "select" && matchedRule.selectFallback) {
       return matchedRule.selectFallback(col);

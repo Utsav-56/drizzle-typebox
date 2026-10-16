@@ -30,3 +30,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 commit
 commit.ps1
 .commit.ps1
+
+**db**
+**generated**
