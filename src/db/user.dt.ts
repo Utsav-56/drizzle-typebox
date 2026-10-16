@@ -50,10 +50,3 @@ const updateConfig = createUpdateConfig(
   },
 );
 
-export default GeneratorConfig({
-  // Optional: overrides default output directory if -o is not passed on CLI
-  emitPath: "./src/generated/schemas",
-  select: [selectConfig],
-  insert: insertConfig,
-  update: updateConfig,
-});

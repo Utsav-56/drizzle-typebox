@@ -10,13 +10,11 @@ import {
   DEFAULT_TYPEBOX_IMPORT,
   IGNORED_SCAN_DIRS,
 } from "./constants";
+import { beginConfigCollection, endConfigCollection } from "./config";
 import { extractAstFromDtFile } from "./ast-extractor";
-import { emitTableSchemaFile, verifyTypeScriptSyntax } from "./emitter";
-import type {
-  CliOptions,
-  EmittedSchemaResult,
-  GeneratorConfigInput,
-} from "./types";
+import { emitSchemaFile, getDtBaseName, verifyTypeScriptSyntax } from "./emitter";
+import { runInit } from "./init";
+import type { CliOptions, EmittedSchemaResult } from "./types";
 
 // --- CLI & Environment Helpers ---
 
@@ -33,26 +31,34 @@ export const parseCliArgs = (
   argv: string[] = Bun.argv.slice(2),
   scriptRoot: string = process.cwd(),
 ): CliOptions => {
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
     args: argv,
     options: {
       dir: { type: "string", short: "d" },
       out: { type: "string", short: "o" },
+       outDir: { type: "string" },
       typebox: { type: "string", short: "t" },
       watch: { type: "boolean", short: "w" },
+      config: { type: "string", short: "c" },
+      init: { type: "boolean" },
     },
+    allowPositionals: true,
     strict: true,
   });
 
   const cwd = process.cwd();
+  const isInit = Boolean(values.init) || positionals[0] === "init";
+  const rawOut = values.out ?? values.outDir;
+
   return {
+    command: isInit ? "init" : "generate",
     searchDir: values.dir ? path.resolve(cwd, values.dir) : cwd,
-    outDir: values.out
-      ? path.resolve(cwd, values.out)
+    outDir: rawOut
+      ? path.resolve(cwd, rawOut)
       : path.resolve(scriptRoot, DEFAULT_OUT_DIR),
-    outDirExplicitlySet: Boolean(values.out),
     typeboxImportPath: values.typebox ?? DEFAULT_TYPEBOX_IMPORT,
     watch: Boolean(values.watch),
+    drizzleConfigPath: values.config ?? positionals[1],
   };
 };
 
@@ -111,7 +117,7 @@ const formatFilesWithOxfmt = async (filePaths: string[]): Promise<void> => {
 // --- Core Pipeline Steps ---
 
 /**
- * Parses a single `.dt.ts` file, extracts its AST + runtime config, and emits its schema.
+ * Evaluates a single `.dt.ts` file using the active collector, extracts its AST, and builds its output in memory.
  */
 const processDtFile = async (
   relPath: string,
@@ -121,55 +127,54 @@ const processDtFile = async (
   const sourceText = await Bun.file(fullDtPath).text();
   const fileAst = extractAstFromDtFile(fullDtPath, sourceText);
 
-  const runtimeMod = await import(`${fullDtPath}?update=${Date.now()}`);
-  const configMap: GeneratorConfigInput | undefined = runtimeMod.default;
-
-  if (!configMap || typeof configMap !== "object") {
-    throw new Error(
-      `File "${relPath}" must have a default export created via GeneratorConfig({ ... }).`,
-    );
+  beginConfigCollection();
+  let capturedConfigs;
+  try {
+    await import(`${fullDtPath}?update=${Date.now()}`);
+    capturedConfigs = endConfigCollection();
+  } catch (err) {
+    endConfigCollection();
+    throw err;
   }
 
-  const resolvedOutDir =
-    !options.outDirExplicitlySet && configMap.emitPath
-      ? path.resolve(process.cwd(), configMap.emitPath)
-      : options.outDir;
-
-  const emitted = emitTableSchemaFile(
-    configMap,
+  const emitted = emitSchemaFile(
+    capturedConfigs,
     fileAst,
     fullDtPath,
-    resolvedOutDir,
+    options.outDir,
     options.typeboxImportPath,
   );
 
-  return { ...emitted, resolvedOutDir };
+  const targetPath = path.join(options.outDir, emitted.fileName);
+
+  return {
+    ...emitted,
+    sourceRelPath: relPath,
+    targetPath,
+  };
 };
 
 /**
- * Writes all schemas and the `index.ts` barrel for a target output directory.
+ * Writes all verified schemas and the `index.ts` barrel to the global output directory.
  */
 const emitOutputDirectory = async (
   targetOutDir: string,
   schemas: EmittedSchemaResult[],
 ): Promise<string[]> => {
   await mkdir(targetOutDir, { recursive: true });
-  schemas.sort((a, b) => a.tableName.localeCompare(b.tableName));
+  schemas.sort((a, b) => a.baseName.localeCompare(b.baseName));
 
   const writtenFiles: string[] = [];
 
   for (const schema of schemas) {
-    const outPath = await writeAndVerifyFile(
-      path.join(targetOutDir, schema.fileName),
-      schema.content,
-    );
+    const outPath = await writeAndVerifyFile(schema.targetPath, schema.content);
     writtenFiles.push(outPath);
     console.log(`✔ Generated & verified: ${relToCwd(outPath)}`);
   }
 
   const barrelContent = [
     AUTO_GENERATED_HEADER,
-    ...schemas.map((s) => `export * from "./${s.tableName}.schema";`),
+    ...schemas.map((s) => `export * from "./${s.baseName}.schema";`),
     "",
   ].join("\n");
 
@@ -196,45 +201,49 @@ export const runGenerator = async (options: CliOptions): Promise<void> => {
     throw new Error(`Invalid search directory: ${options.searchDir}`);
   }
 
-  const resultsByOutDir = new Map<string, EmittedSchemaResult[]>();
-  const seenTables = new Map<string, string>();
+  const dtRelPaths: string[] = [];
   const glob = new Glob("**/*.dt.ts");
 
   for await (const relPath of glob.scan({
     cwd: options.searchDir,
     onlyFiles: true,
   })) {
-    if (shouldIgnorePath(relPath)) continue;
-
-    const result = await processDtFile(relPath, options);
-    const { resolvedOutDir, tableName } = result;
-
-    const uniqueKey = `${resolvedOutDir}::${tableName}`;
-    if (seenTables.has(uniqueKey)) {
-      throw new Error(
-        `Duplicate table "${tableName}" in "${relPath}" and "${seenTables.get(uniqueKey)}" targeting "${resolvedOutDir}".`,
-      );
+    if (!shouldIgnorePath(relPath)) {
+      dtRelPaths.push(relPath);
     }
-    seenTables.set(uniqueKey, relPath);
-
-    const group = resultsByOutDir.get(resolvedOutDir) ?? [];
-    group.push(result);
-    resultsByOutDir.set(resolvedOutDir, group);
   }
 
-  if (!seenTables.size) {
+  if (!dtRelPaths.length) {
     console.warn(`⚠ No *.dt.ts files found in "${options.searchDir}".`);
     return;
   }
 
-  // Write all schemas & barrels, tracking every written file path
-  const writtenFiles: string[] = [];
-  for (const [outDir, schemas] of resultsByOutDir) {
-    const files = await emitOutputDirectory(outDir, schemas);
-    writtenFiles.push(...files);
+  // 1. Pre-flight output path collision check BEFORE evaluating or writing any files
+  const targetPathOwners = new Map<string, string>();
+  for (const relPath of dtRelPaths) {
+    const baseName = getDtBaseName(relPath);
+    const targetPath = path.join(options.outDir, `${baseName}.schema.ts`);
+
+    const existingOwner = targetPathOwners.get(targetPath);
+    if (existingOwner) {
+      throw new Error(
+        `Output path collision detected: "${existingOwner}" and "${relPath}" both resolve to "${relToCwd(targetPath)}". Aborting generation.`,
+      );
+    }
+    targetPathOwners.set(targetPath, relPath);
   }
 
-  // Format all generated files at once via oxfmt
+  // 2. Process all .dt.ts files in memory first (atomic generation)
+  const emittedSchemas: EmittedSchemaResult[] = [];
+  for (const relPath of dtRelPaths) {
+    const result = await processDtFile(relPath, options);
+    emittedSchemas.push(result);
+  }
+
+  // 3. Write all schemas & barrel only after all files succeed
+  const writtenFiles = await emitOutputDirectory(options.outDir, emittedSchemas);
+
+  // 4. Format all generated files at once via oxfmt
   await formatFilesWithOxfmt(writtenFiles);
 
   const elapsedMs = (performance.now() - startTime).toFixed(1);
@@ -256,15 +265,19 @@ const startWatcher = (options: CliOptions): void => {
       } catch (err) {
         console.error("❌ Regeneration error:", err);
       }
-    }, 120);
+    }, 120); 
   });
 };
 
 if (import.meta.main) {
   try {
     const cliOptions = parseCliArgs();
-    await runGenerator(cliOptions);
-    if (cliOptions.watch) startWatcher(cliOptions);
+    if (cliOptions.command === "init") {
+      await runInit(cliOptions.drizzleConfigPath);
+    } else {
+      await runGenerator(cliOptions);
+      if (cliOptions.watch) startWatcher(cliOptions);
+    }
   } catch (error) {
     console.error(
       "❌ Generator failed:",

@@ -28,27 +28,18 @@ export interface ModeConfig<TTable extends Table = Table> {
   readonly options: ModeOptions<TTable>;
 }
 
-export interface GeneratorConfigInput {
-  /** Optional custom folder path to store generated schemas */
-  emitPath?: string;
-  select?: ModeConfig<any>;
-  insert?: ModeConfig<any>;
-  update?: ModeConfig<any>;
-}
-
-export interface GeneratorConfigOutput extends GeneratorConfigInput {
-  readonly __brand: "DrizzleTypeboxGeneratorConfig";
-}
-
 export interface ExtractedModeAst {
+  mode: QueryMode;
+  tableIdentifier: string;
   refinements: Record<string, string>;
   composites: string[];
   extend: Record<string, string>;
 }
 
 export interface ExtractedFileAst {
-  modes: Partial<Record<QueryMode, ExtractedModeAst>>;
+  calls: ExtractedModeAst[];
   externalImports: ExternalImport[];
+  supportingStatements: string[];
 }
 
 export interface ExternalImport {
@@ -58,16 +49,18 @@ export interface ExternalImport {
 }
 
 export interface CliOptions {
+  command: "generate" | "init";
   searchDir: string;
   outDir: string;
-  outDirExplicitlySet: boolean;
   typeboxImportPath: string;
   watch: boolean;
+  drizzleConfigPath?: string;
 }
 
 export interface EmittedSchemaResult {
-  tableName: string;
+  baseName: string;
   fileName: string;
+  sourceRelPath: string;
+  targetPath: string;
   content: string;
-  resolvedOutDir: string;
 }

@@ -1,13 +1,12 @@
 import path from "node:path";
 import ts from "typescript";
 import { getTableColumns, getTableName, isTable } from "drizzle-orm";
-import { AUTO_GENERATED_HEADER, QUERY_MODES } from "./constants";
+import { AUTO_GENERATED_HEADER } from "./constants";
 import { applyColumnModifiers } from "./modifiers";
 import { resolveBaseSchema, shouldOmitColumn } from "./column-to-schema";
 import type {
   ExtractedFileAst,
   ExtractedModeAst,
-  GeneratorConfigInput,
   ModeConfig,
 } from "./types";
 
@@ -17,7 +16,6 @@ const IGNORED_IMPORTS = new Set([
   "createSelectConfig",
   "createInsertConfig",
   "createUpdateConfig",
-  "GeneratorConfig",
 ]);
 
 const toPascalCase = (str: string): string =>
@@ -30,6 +28,12 @@ const formatKey = (key: string): string =>
   /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key);
 
 /**
+ * Extracts `<baseName>` from `/path/to/<baseName>.dt.ts`.
+ */
+export const getDtBaseName = (dtFilePath: string): string =>
+  path.basename(dtFilePath).replace(/\.dt\.ts$/, "");
+
+/**
  * Validates the Drizzle table, excluded columns, and AST refinements in a single pass.
  */
 const parseAndValidateMode = (
@@ -37,12 +41,6 @@ const parseAndValidateMode = (
   { mode, table, options }: ModeConfig,
   ast?: ExtractedModeAst,
 ) => {
-  if (!table || !isTable(table)) {
-    throw new Error(
-      `Invalid Drizzle table passed to ${mode} config. Expected a Drizzle Table instance.`,
-    );
-  }
-
   const columns = getTableColumns(table);
   const excluded = new Set([
     ...(options.columnsToExclude ?? []),
@@ -77,7 +75,7 @@ const parseAndValidateMode = (
 };
 
 /**
- * Emits a single mode block (select, insert, or update) without manual indentation.
+ * Emits a single mode block (select, insert, or update) for a specific table.
  */
 const emitModeSection = (
   tableName: string,
@@ -87,9 +85,11 @@ const emitModeSection = (
   const { mode, columns, excluded, refinements, extend, composites } =
     parseAndValidateMode(tableName, config, modeAst);
 
-  // 1. Standalone composite declarations
+  const safeTablePrefix = toCamelCase(tableName);
+
+  // 1. Standalone composite declarations scoped by table + mode
   const compositeVars = composites.map(
-    (_, idx) => `_${mode}Composite${idx + 1}`,
+    (_, idx) => `_${safeTablePrefix}_${mode}Composite${idx + 1}`,
   );
   const compositeDecls = composites.map(
     (code, idx) => `const ${compositeVars[idx]} = ${code};`,
@@ -197,38 +197,59 @@ export const verifyTypeScriptSyntax = (
   );
 };
 
-export const emitTableSchemaFile = (
-  configMap: GeneratorConfigInput,
+export const emitSchemaFile = (
+  configs: ModeConfig[],
   fileAst: ExtractedFileAst,
   dtFilePath: string,
   resolvedOutDir: string,
   typeboxImportPath: string,
-): { tableName: string; fileName: string; content: string } => {
-  const activeConfigs = QUERY_MODES.map((m) => configMap[m]).filter(
-    (cfg): cfg is ModeConfig => Boolean(cfg),
-  );
-
-  if (!activeConfigs.length) {
+): { baseName: string; fileName: string; content: string } => {
+  if (!configs.length) {
     throw new Error(
-      `No active mode configs (select, insert, update) found in ${dtFilePath}.`,
+      `No active mode configs (createSelectConfig, createInsertConfig, createUpdateConfig) found in ${dtFilePath}.`,
     );
   }
 
-  const tableNames = new Set(
-    activeConfigs.map((cfg) => getTableName(cfg.table)),
-  );
-  if (tableNames.size > 1) {
+  if (configs.length !== fileAst.calls.length) {
     throw new Error(
-      `Multiple tables (${[...tableNames].join(", ")}) in ${dtFilePath}. Use one .dt.ts file per table.`,
+      `Mismatch between AST config calls (${fileAst.calls.length}) and runtime executed configs (${configs.length}) in ${dtFilePath}. Ensure create*Config calls are at the top level.`,
     );
   }
 
-  const tableName = getTableName(activeConfigs[0].table);
-  const fileName = `${tableName}.schema.ts`;
+  const seenRuntimeTableModes = new Set<string>();
+  const sections: string[] = [];
 
-  const body = activeConfigs
-    .map((cfg) => emitModeSection(tableName, cfg, fileAst.modes[cfg.mode]))
-    .join("\n\n");
+  for (let i = 0; i < configs.length; i++) {
+    const cfg = configs[i];
+    const callAst = fileAst.calls[i];
+
+    if (!cfg.table || !isTable(cfg.table)) {
+      throw new Error(
+        `Invalid Drizzle table passed to ${cfg.mode} config in ${dtFilePath}. Expected a Drizzle Table instance.`,
+      );
+    }
+
+    const tableName = getTableName(cfg.table);
+    const runtimeKey = `${tableName}::${cfg.mode}`;
+
+    if (seenRuntimeTableModes.has(runtimeKey)) {
+      throw new Error(
+        `Duplicate "${cfg.mode}" config for table "${tableName}" in "${dtFilePath}".`,
+      );
+    }
+    seenRuntimeTableModes.add(runtimeKey);
+
+    sections.push(emitModeSection(tableName, cfg, callAst));
+  }
+
+  const baseName = getDtBaseName(dtFilePath);
+  const fileName = `${baseName}.schema.ts`;
+
+  const bodyParts = [
+    ...fileAst.supportingStatements,
+    ...sections,
+  ];
+  const body = bodyParts.join("\n\n");
 
   const imports = [
     AUTO_GENERATED_HEADER,
@@ -241,5 +262,5 @@ export const emitTableSchemaFile = (
 
   verifyTypeScriptSyntax(fileName, content);
 
-  return { tableName, fileName, content };
+  return { baseName, fileName, content };
 };

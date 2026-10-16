@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { CALL_NAME_TO_MODE, QUERY_MODES } from "./constants";
+import { CALL_NAME_TO_MODE } from "./constants";
 import type {
   ExtractedFileAst,
   ExtractedModeAst,
@@ -65,6 +65,60 @@ const collectExternalImports = (sourceFile: ts.SourceFile): ExternalImport[] =>
     ];
   });
 
+/**
+ * Checks whether a statement contains a `create*Config(...)` call.
+ */
+const containsModeConfigCall = (
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+): boolean => {
+  let found = false;
+  const check = (child: ts.Node) => {
+    if (found) return;
+    if (ts.isCallExpression(child)) {
+      const callee = child.expression.getText(sourceFile).trim();
+      if (callee in CALL_NAME_TO_MODE) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(child, check);
+  };
+  check(node);
+  return found;
+};
+
+/**
+ * Collects top-level supporting statements (type aliases, interfaces, functions,
+ * or helper `const` declarations that are not `create*Config` calls and not inlined).
+ */
+const collectSupportingStatements = (
+  sourceFile: ts.SourceFile,
+  inlinedConstNames: Set<string>,
+): string[] => {
+  const statements: string[] = [];
+
+  for (const stmt of sourceFile.statements) {
+    if (ts.isImportDeclaration(stmt) || ts.isExportAssignment(stmt)) continue;
+    if (containsModeConfigCall(stmt, sourceFile)) continue;
+
+    if (ts.isVariableStatement(stmt)) {
+      const keptDecls = stmt.declarationList.declarations.filter((decl) => {
+        if (!ts.isIdentifier(decl.name)) return true;
+        return !inlinedConstNames.has(decl.name.text);
+      });
+      if (keptDecls.length === stmt.declarationList.declarations.length) {
+        statements.push(stmt.getText(sourceFile).trim());
+      }
+      continue;
+    }
+
+    statements.push(stmt.getText(sourceFile).trim());
+  }
+
+  return statements;
+};
+
 export const extractAstFromDtFile = (
   filePath: string,
   sourceText: string,
@@ -78,16 +132,21 @@ export const extractAstFromDtFile = (
   );
 
   const consts = collectTopLevelConsts(sourceFile);
-  const modes: Partial<Record<QueryMode, ExtractedModeAst>> = {};
-
-  // --- Scoped AST Helpers (avoids passing sourceFile & consts everywhere) ---
+  const inlinedConsts = new Set<string>();
+  const calls: ExtractedModeAst[] = [];
+  const seenTableModes = new Set<string>();
 
   const getText = (node: ts.Node): string => node.getText(sourceFile).trim();
 
   const getKey = (name: ts.PropertyName): string => stripQuotes(getText(name));
 
-  const resolve = (expr?: ts.Expression): ts.Expression | undefined =>
-    expr && ts.isIdentifier(expr) ? (consts.get(expr.text) ?? expr) : expr;
+  const resolve = (expr?: ts.Expression): ts.Expression | undefined => {
+    if (expr && ts.isIdentifier(expr) && consts.has(expr.text)) {
+      inlinedConsts.add(expr.text);
+      return consts.get(expr.text);
+    }
+    return expr;
+  };
 
   const extractObjectMap = (expr?: ts.Expression): Record<string, string> => {
     const obj = resolve(expr);
@@ -102,6 +161,7 @@ export const extractAstFromDtFile = (
       } else if (ts.isShorthandPropertyAssignment(prop)) {
         const key = prop.name.text;
         const val = consts.get(key);
+        if (val) inlinedConsts.add(key);
         map[key] = val ? getText(val) : key;
       }
     }
@@ -115,10 +175,29 @@ export const extractAstFromDtFile = (
     return arr.elements.map((el) => getText(resolve(el) ?? el));
   };
 
-  const parseModeCall = (call: ts.CallExpression): ExtractedModeAst => {
-    const [, refinementsArg, optionsArg] = call.arguments;
-    const optionsObj = resolve(optionsArg);
+  const parseModeCall = (
+    mode: QueryMode,
+    call: ts.CallExpression,
+  ): ExtractedModeAst => {
+    const [tableArg, refinementsArg, optionsArg] = call.arguments;
+    if (!tableArg) {
+      throw new Error(
+        `Missing table argument in ${getText(call.expression)}(...) at ${filePath}.`,
+      );
+    }
 
+    const resolvedTableExpr = resolve(tableArg) ?? tableArg;
+    const tableIdentifier = getText(resolvedTableExpr);
+
+    const uniqueKey = `${tableIdentifier}::${mode}`;
+    if (seenTableModes.has(uniqueKey)) {
+      throw new Error(
+        `Duplicate "${mode}" config for table "${tableIdentifier}" in "${filePath}". Each (table, mode) pair can only be configured once per file.`,
+      );
+    }
+    seenTableModes.add(uniqueKey);
+
+    const optionsObj = resolve(optionsArg);
     let composites: string[] = [];
     let extend: Record<string, string> = {};
 
@@ -132,42 +211,20 @@ export const extractAstFromDtFile = (
     }
 
     return {
+      mode,
+      tableIdentifier,
       refinements: extractObjectMap(refinementsArg),
       composites,
       extend,
     };
   };
 
-  // --- AST Traversal ---
-
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
       const callee = getText(node.expression);
-
-      // 1. Direct helper call: createSelectConfig / createInsertConfig / createUpdateConfig
       const directMode = CALL_NAME_TO_MODE[callee];
       if (directMode) {
-        modes[directMode] = parseModeCall(node);
-      }
-
-      // 2. Wrapper call: GeneratorConfig({ select: ..., insert: ..., update: ... })
-      if (callee === "GeneratorConfig") {
-        const configObj = resolve(node.arguments[0]);
-        if (configObj && ts.isObjectLiteralExpression(configObj)) {
-          for (const prop of configObj.properties) {
-            if (!ts.isPropertyAssignment(prop)) continue;
-            const mode = getKey(prop.name) as QueryMode;
-            const target = resolve(prop.initializer);
-
-            if (
-              QUERY_MODES.includes(mode) &&
-              target &&
-              ts.isCallExpression(target)
-            ) {
-              modes[mode] = parseModeCall(target);
-            }
-          }
-        }
+        calls.push(parseModeCall(directMode, node));
       }
     }
 
@@ -177,7 +234,11 @@ export const extractAstFromDtFile = (
   visit(sourceFile);
 
   return {
-    modes,
+    calls,
     externalImports: collectExternalImports(sourceFile),
+    supportingStatements: collectSupportingStatements(
+      sourceFile,
+      inlinedConsts,
+    ),
   };
 };
