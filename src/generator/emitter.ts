@@ -4,11 +4,7 @@ import { getTableColumns, getTableName, isTable } from "drizzle-orm";
 import { AUTO_GENERATED_HEADER } from "./constants";
 import { applyColumnModifiers } from "./modifiers";
 import { resolveBaseSchema, shouldOmitColumn } from "./column-to-schema";
-import type {
-  ExtractedFileAst,
-  ExtractedModeAst,
-  ModeConfig,
-} from "./types";
+import type { ExtractedFileAst, ExtractedModeAst, ModeConfig } from "./types";
 
 const IGNORED_IMPORTS = new Set([
   "t",
@@ -245,15 +241,12 @@ export const emitSchemaFile = (
   const baseName = getDtBaseName(dtFilePath);
   const fileName = `${baseName}.schema.ts`;
 
-  const bodyParts = [
-    ...fileAst.supportingStatements,
-    ...sections,
-  ];
+  const bodyParts = [...fileAst.supportingStatements, ...sections];
   const body = bodyParts.join("\n\n");
 
   const imports = [
     AUTO_GENERATED_HEADER,
-    `import { type Static } from "@sinclair/typebox";`,
+    `import { type Static } from "${typeboxImportPath}";`,
     `import { t } from "${typeboxImportPath}";`,
     ...resolveNeededExternalImports(fileAst, body, dtFilePath, resolvedOutDir),
   ].join("\n");

@@ -1,7 +1,7 @@
 import type { QueryMode } from "./types";
 
 export const DEFAULT_OUT_DIR = "./src/generated/schemas";
-export const DEFAULT_TYPEBOX_IMPORT = "@utsav/typebox";
+export const DEFAULT_TYPEBOX_IMPORT = "@utsav56/typebox";
 
 export const QUERY_MODES: readonly QueryMode[] = [
   "select",

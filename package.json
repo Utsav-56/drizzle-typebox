@@ -49,11 +49,11 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^18.15.10",
-    "@utsav/typebox": "workspace:*",
+    "@utsav/typebox": "../typebox",
     "typescript": "^6.0.2"
   },
   "peerDependencies": {
-    "@utsav/typebox": "workspace:*",
+    "@utsav/typebox": "../typebox",
     "drizzle-orm": ">=0.45.2"
   }
 }

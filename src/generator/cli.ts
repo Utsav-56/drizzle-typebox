@@ -12,7 +12,11 @@ import {
 } from "./constants";
 import { beginConfigCollection, endConfigCollection } from "./config";
 import { extractAstFromDtFile } from "./ast-extractor";
-import { emitSchemaFile, getDtBaseName, verifyTypeScriptSyntax } from "./emitter";
+import {
+  emitSchemaFile,
+  getDtBaseName,
+  verifyTypeScriptSyntax,
+} from "./emitter";
 import { runInit } from "./init";
 import type { CliOptions, EmittedSchemaResult } from "./types";
 
@@ -36,7 +40,7 @@ export const parseCliArgs = (
     options: {
       dir: { type: "string", short: "d" },
       out: { type: "string", short: "o" },
-       outDir: { type: "string" },
+      outDir: { type: "string" },
       typebox: { type: "string", short: "t" },
       watch: { type: "boolean", short: "w" },
       config: { type: "string", short: "c" },
@@ -241,7 +245,10 @@ export const runGenerator = async (options: CliOptions): Promise<void> => {
   }
 
   // 3. Write all schemas & barrel only after all files succeed
-  const writtenFiles = await emitOutputDirectory(options.outDir, emittedSchemas);
+  const writtenFiles = await emitOutputDirectory(
+    options.outDir,
+    emittedSchemas,
+  );
 
   // 4. Format all generated files at once via oxfmt
   await formatFilesWithOxfmt(writtenFiles);
@@ -265,7 +272,7 @@ const startWatcher = (options: CliOptions): void => {
       } catch (err) {
         console.error("❌ Regeneration error:", err);
       }
-    }, 120); 
+    }, 120);
   });
 };
 
