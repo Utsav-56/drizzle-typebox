@@ -47,12 +47,13 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "@types/node": "^18.15.10",
-    "@utsav/typebox": "../typebox",
+    "@utsav/typebox": "workspace:*",
     "typescript": "^6.0.2"
   },
   "peerDependencies": {
-    "@utsav/typebox": "../typebox",
+    "@utsav/typebox": "workspace:*",
     "drizzle-orm": ">=0.45.2"
   }
 }

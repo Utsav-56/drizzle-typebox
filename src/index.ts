@@ -2,8 +2,7 @@ export {
   createSelectConfig,
   createInsertConfig,
   createUpdateConfig,
-  GeneratorConfig,
-} from "./config";
+} from "./generator/config";
 
 export type {
   QueryMode,
@@ -11,6 +10,4 @@ export type {
   Refinements,
   ModeOptions,
   ModeConfig,
-  GeneratorConfigInput,
-  GeneratorConfigOutput,
-} from "./types";
+} from "./generator/types";
