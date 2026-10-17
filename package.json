@@ -37,9 +37,6 @@
       "default": "./src/index.ts"
     }
   },
-  "publishConfig": {
-    "provenance": true
-  },
   "scripts": {
     "build": "tsx scripts/build.ts",
     "b": "bun run build",
@@ -50,14 +47,11 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@rollup/plugin-typescript": "^11.1.0",
-    "@sinclair/typebox": "^0.34.8",
     "@types/node": "^18.15.10",
     "@utsav/typebox": "../typebox",
     "typescript": "^6.0.2"
   },
   "peerDependencies": {
-    "@sinclair/typebox": ">=0.34.8",
     "@utsav/typebox": "../typebox",
     "drizzle-orm": ">=0.45.2"
   }
