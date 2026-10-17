@@ -1,6 +1,7 @@
-import { $t, NameRule, rawSchema, rule, writeOnlyRule } from "./rules";
-import { QueryMode } from "./types";
-import { t } from "@utsav/typebox";
+import { rawSchema, rule, writeOnlyRule, type NameRule } from "./rules";
+import { $t } from "./rules";
+import type { QueryMode } from "./types";
+import { t } from "@utsav56/typebox";
 
 export const MODE_OMIT_PATTERNS: Record<QueryMode, RegExp[]> = {
   select: [],

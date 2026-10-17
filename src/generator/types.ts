@@ -1,4 +1,4 @@
-import type { TSchema } from "@sinclair/typebox";
+import type { TSchema } from "@utsav56/typebox";
 import type { Table } from "drizzle-orm";
 
 export type QueryMode = "select" | "insert" | "update";

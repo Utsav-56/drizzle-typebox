@@ -1,8 +1,7 @@
-import { TSchema } from "@utsav/typebox";
-import { t } from "@utsav/typebox";
-import { TType } from "@utsav/typebox";
+import { t } from "@utsav56/typebox";
+import type { TSchema, TType } from "@utsav56/typebox";
 import { Column } from "drizzle-orm/column";
-import { QueryMode } from "./types";
+import type { QueryMode } from "./types";
 
 const RAW_CODE = Symbol("RAW_CODE");
 

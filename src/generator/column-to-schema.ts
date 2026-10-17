@@ -110,7 +110,7 @@ export const resolveBaseSchema = (
   rawRefinements: Record<string, string>,
 ): string => {
   if (colName in rawRefinements) {
-    return rawRefinements[colName];
+    return rawRefinements[colName]!;
   }
 
   const matchedRule = NAME_RULES.find((r) => r.pattern.test(col.name));

@@ -1,23 +1,16 @@
 {
-
+	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
-		"esModuleInterop": true,
-		"target": "ES2022",
-		"module": "ESNext",
-		"moduleResolution": "bundler",
-		"skipLibCheck": true,
-		"allowImportingTsExtensions": true,
-		"outDir": "dist",
-		"declaration": true,
-		"noEmit": true,
-		"paths": {
-			"~/*": [
-				"./src/*"
-			]
-		}
+		"outDir": "./dist",
+		"rootDir": "./src",
+		"tsBuildInfoFile": "./dist/.tsbuildinfo"
 	},
 	"include": [
-		"src",
-		"*.ts"
+		"src/**/*"
+	],
+	"references": [
+		{
+			"path": "../typebox"
+		}
 	]
 }

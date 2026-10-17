@@ -216,8 +216,8 @@ export const emitSchemaFile = (
   const sections: string[] = [];
 
   for (let i = 0; i < configs.length; i++) {
-    const cfg = configs[i];
-    const callAst = fileAst.calls[i];
+    const cfg = configs[i]!;
+    const callAst = fileAst.calls[i]!;
 
     if (!cfg.table || !isTable(cfg.table)) {
       throw new Error(
